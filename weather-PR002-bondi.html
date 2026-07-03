@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Weather</title>
+<style>
+  :root{
+    --bg:#1f1f1f;
+    --card:#2b2b2b;
+    --border:#3a3a3a;
+    --text:#f2f0eb;
+    --text-dim:#a8a29b;
+    --accent:#e8823c;
+    --accent-soft:#e8823c22;
+    --rain:#5b9bd5;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  body{padding:20px;max-width:640px;margin:0 auto;}
+
+  .loading, .error{padding:40px 20px;text-align:center;color:var(--text-dim);font-size:14px;}
+  .error{color:#d97757;}
+
+  .top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;}
+  .place{font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--text-dim);font-weight:600;}
+  .updated{font-size:11px;color:var(--text-dim);margin-top:2px;}
+
+  .unit-toggle{
+    display:flex;background:var(--card);border:1px solid var(--border);
+    border-radius:20px;padding:3px;flex-shrink:0;
+  }
+  .unit-btn{
+    border:none;background:transparent;color:var(--text-dim);
+    font-size:12px;font-weight:700;padding:5px 11px;border-radius:16px;
+    cursor:pointer;font-family:inherit;transition:background .15s,color .15s;
+  }
+  .unit-btn.active{background:var(--accent);color:#1f1f1f;}
+
+  .now{
+    background:var(--card);border:1px solid var(--border);border-radius:14px;
+    padding:22px 20px;display:flex;align-items:center;justify-content:space-between;
+    margin-bottom:14px;
+  }
+  .now-left{display:flex;align-items:center;gap:14px;}
+  .now-icon{font-size:44px;line-height:1;}
+  .now-temp{font-size:44px;font-weight:700;letter-spacing:-.02em;}
+  .now-meta{font-size:13px;color:var(--text-dim);margin-top:2px;}
+  .now-right{text-align:right;}
+  .now-condition{font-size:15px;font-weight:600;margin-bottom:4px;}
+  .now-range{font-size:13px;color:var(--text-dim);}
+
+  .tip{
+    background:var(--accent-soft);border:1px solid #e8823c40;border-radius:12px;
+    padding:14px 16px;font-size:13.5px;line-height:1.5;margin-bottom:18px;
+    display:flex;gap:10px;align-items:flex-start;
+  }
+  .tip .tip-icon{font-size:16px;flex-shrink:0;}
+  .tip b{color:var(--accent);}
+
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px;}
+  .stat{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 12px;text-align:center;}
+  .stat-label{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-dim);margin-bottom:6px;}
+  .stat-value{font-size:17px;font-weight:700;}
+  .stat-icon{font-size:18px;margin-bottom:4px;}
+
+  .section-label{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-dim);font-weight:600;margin:20px 0 10px;}
+
+  .hourly{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:8px;}
+  .hour{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 12px;min-width:62px;text-align:center;flex-shrink:0;}
+  .hour-time{font-size:11px;color:var(--text-dim);margin-bottom:6px;}
+  .hour-icon{font-size:20px;margin-bottom:6px;}
+  .hour-temp{font-size:13px;font-weight:600;}
+
+  .days{display:flex;flex-direction:column;gap:6px;margin-bottom:6px;}
+  .day{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:11px 14px;display:flex;align-items:center;gap:12px;}
+  .day-name{font-size:13px;font-weight:600;width:38px;flex-shrink:0;}
+  .day-icon{font-size:20px;width:26px;text-align:center;flex-shrink:0;}
+  .day-rain{font-size:11.5px;color:var(--rain);width:34px;flex-shrink:0;}
+  .day-bar-wrap{flex:1;height:4px;background:var(--border);border-radius:2px;position:relative;overflow:hidden;}
+  .day-bar{position:absolute;top:0;bottom:0;background:linear-gradient(90deg,#5b9bd5,#e8823c);border-radius:2px;}
+  .day-temps{font-size:13px;flex-shrink:0;width:74px;text-align:right;color:var(--text-dim);}
+  .day-temps b{color:var(--text);font-weight:600;}
+
+  .footer{text-align:center;font-size:11px;color:var(--text-dim);margin-top:18px;padding-top:14px;border-top:1px solid var(--border);}
+
+  ::-webkit-scrollbar{height:6px;}
+  ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+</style>
+</head>
+<body>
+
+<div id="root"><div class="loading">Loading forecast…</div></div>
+
+<script>
+const params = new URLSearchParams(window.location.search);
+const lat = params.get('lat') || '-33.8908';
+const lon = params.get('lon') || '151.2743';
+const city = params.get('city') || 'Bondi';
+
+const storageKey = 'placemates_weather_units';
+let currentUnits = localStorage.getItem(storageKey) || params.get('units') || 'metric';
+
+const WMO = {
+  0:['Clear sky','☀️'],1:['Mainly clear','🌤️'],2:['Partly cloudy','⛅'],3:['Overcast','☁️'],
+  45:['Foggy','🌫️'],48:['Foggy','🌫️'],
+  51:['Light drizzle','🌦️'],53:['Drizzle','🌦️'],55:['Heavy drizzle','🌧️'],
+  56:['Freezing drizzle','🌧️'],57:['Freezing drizzle','🌧️'],
+  61:['Light rain','🌦️'],63:['Rain','🌧️'],65:['Heavy rain','🌧️'],
+  66:['Freezing rain','🌧️'],67:['Freezing rain','🌧️'],
+  71:['Light snow','🌨️'],73:['Snow','🌨️'],75:['Heavy snow','❄️'],77:['Snow grains','🌨️'],
+  80:['Light showers','🌦️'],81:['Showers','🌧️'],82:['Heavy showers','⛈️'],
+  85:['Snow showers','🌨️'],86:['Snow showers','❄️'],
+  95:['Thunderstorm','⛈️'],96:['Thunderstorm','⛈️'],99:['Severe storm','⛈️']
+};
+
+function weatherInfo(code){ return WMO[code] || ['Unknown','🌡️']; }
+
+function dayName(dateStr, idx){
+  if(idx===0) return 'Today';
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-AU', { weekday: 'short' });
+}
+
+function hourLabel(iso){
+  const d = new Date(iso);
+  let h = d.getHours();
+  const ampm = h >= 12 ? 'pm' : 'am';
+  h = h % 12; if(h===0) h = 12;
+  return h + ampm;
+}
+
+function buildTip(current, todayMax, todayMin, precipProb, uv, units){
+  const [cond] = weatherInfo(current.weather_code);
+  let msg = '', icon = '💡';
+  const hotThreshold = units==='imperial'?86:30;
+  const coldThreshold = units==='imperial'?46:8;
+  if(precipProb >= 50){
+    icon = '☔'; msg = `<b>Pack an umbrella</b> — ${precipProb}% chance of rain today.`;
+  } else if(current.weather_code >= 95){
+    icon = '⚡'; msg = `<b>Storms possible</b> — best to plan indoor activities today.`;
+  } else if(todayMax >= hotThreshold){
+    icon = '🥵'; msg = `<b>Hot one</b> — sunscreen, water, and a hat if you're heading out.`;
+  } else if(todayMin <= coldThreshold){
+    icon = '🧥'; msg = `<b>Cool start</b> — grab a jacket, especially morning and evening.`;
+  } else if(uv >= 8){
+    icon = '🕶️'; msg = `<b>High UV</b> (${uv}) — sun protection recommended, even if it's mild.`;
+  } else {
+    icon = '👍'; msg = `<b>Good conditions</b> for getting out and exploring — ${cond.toLowerCase()}.`;
+  }
+  return { icon, msg };
+}
+
+function setUnits(units){
+  currentUnits = units;
+  localStorage.setItem(storageKey, units);
+  load();
+}
+
+async function load(){
+  const tempUnit = currentUnits === 'imperial' ? 'fahrenheit' : 'celsius';
+  const windUnit = currentUnits === 'imperial' ? 'mph' : 'kmh';
+
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+    `&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m` +
+    `&hourly=temperature_2m,weather_code,precipitation_probability` +
+    `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,uv_index_max,sunrise,sunset` +
+    `&temperature_unit=${tempUnit}&wind_speed_unit=${windUnit}&timezone=auto&forecast_days=6`;
+
+  try{
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('Weather service unavailable');
+    const data = await res.json();
+    render(data, windUnit);
+  } catch(err){
+    document.getElementById('root').innerHTML = `<div class="error">Couldn't load the forecast right now.<br>Please try refreshing.</div>`;
+  }
+}
+
+function render(data, windUnit){
+  const cur = data.current;
+  const [condition, curIcon] = weatherInfo(cur.weather_code);
+  const todayMax = Math.round(data.daily.temperature_2m_max[0]);
+  const todayMin = Math.round(data.daily.temperature_2m_min[0]);
+  const precipProb = data.daily.precipitation_probability_max[0] ?? 0;
+  const uv = Math.round(data.daily.uv_index_max[0] ?? 0);
+  const sunrise = new Date(data.daily.sunrise[0]).toLocaleTimeString('en-AU',{hour:'numeric',minute:'2-digit'});
+  const sunset = new Date(data.daily.sunset[0]).toLocaleTimeString('en-AU',{hour:'numeric',minute:'2-digit'});
+  const tip = buildTip(cur, todayMax, todayMin, precipProb, uv, currentUnits);
+
+  const nowIso = new Date().toISOString().slice(0,13);
+  let startIdx = data.hourly.time.findIndex(t => t.slice(0,13) >= nowIso);
+  if(startIdx < 0) startIdx = 0;
+  const hourly = [];
+  for(let i=startIdx; i<startIdx+8 && i<data.hourly.time.length; i++){
+    hourly.push({ time: data.hourly.time[i], temp: Math.round(data.hourly.temperature_2m[i]), code: data.hourly.weather_code[i] });
+  }
+
+  const allMax = Math.max(...data.daily.temperature_2m_max);
+  const allMin = Math.min(...data.daily.temperature_2m_min);
+  const range = allMax - allMin || 1;
+
+  const daysHtml = data.daily.time.map((date, i) => {
+    const [ , icon] = weatherInfo(data.daily.weather_code[i]);
+    const max = Math.round(data.daily.temperature_2m_max[i]);
+    const min = Math.round(data.daily.temperature_2m_min[i]);
+    const rain = data.daily.precipitation_probability_max[i] ?? 0;
+    const leftPct = ((min - allMin) / range) * 100;
+    const widthPct = ((max - min) / range) * 100;
+    return `
+      <div class="day">
+        <div class="day-name">${dayName(date, i)}</div>
+        <div class="day-icon">${icon}</div>
+        <div class="day-rain">${rain > 0 ? rain + '%' : ''}</div>
+        <div class="day-bar-wrap"><div class="day-bar" style="left:${leftPct}%;width:${widthPct}%"></div></div>
+        <div class="day-temps"><b>${max}°</b> / ${min}°</div>
+      </div>`;
+  }).join('');
+
+  const hourlyHtml = hourly.map(h => {
+    const [ , icon] = weatherInfo(h.code);
+    return `
+      <div class="hour">
+        <div class="hour-time">${hourLabel(h.time)}</div>
+        <div class="hour-icon">${icon}</div>
+        <div class="hour-temp">${h.temp}°</div>
+      </div>`;
+  }).join('');
+
+  document.getElementById('root').innerHTML = `
+    <div class="top">
+      <div>
+        <div class="place">${city}</div>
+        <div class="updated">Updated ${new Date().toLocaleTimeString('en-AU',{hour:'numeric',minute:'2-digit'})}</div>
+      </div>
+      <div class="unit-toggle">
+        <button class="unit-btn ${currentUnits==='metric'?'active':''}" onclick="setUnits('metric')">°C</button>
+        <button class="unit-btn ${currentUnits==='imperial'?'active':''}" onclick="setUnits('imperial')">°F</button>
+      </div>
+    </div>
+
+    <div class="now">
+      <div class="now-left">
+        <div class="now-icon">${curIcon}</div>
+        <div>
+          <div class="now-temp">${Math.round(cur.temperature_2m)}°</div>
+          <div class="now-meta">Feels like ${Math.round(cur.apparent_temperature)}°</div>
+        </div>
+      </div>
+      <div class="now-right">
+        <div class="now-condition">${condition}</div>
+        <div class="now-range">H:${todayMax}° L:${todayMin}°</div>
+      </div>
+    </div>
+
+    <div class="tip"><span class="tip-icon">${tip.icon}</span><span>${tip.msg}</span></div>
+
+    <div class="grid">
+      <div class="stat"><div class="stat-icon">💧</div><div class="stat-label">Humidity</div><div class="stat-value">${cur.relative_humidity_2m}%</div></div>
+      <div class="stat"><div class="stat-icon">💨</div><div class="stat-label">Wind</div><div class="stat-value">${Math.round(cur.wind_speed_10m)} ${windUnit === 'kmh' ? 'km/h' : 'mph'}</div></div>
+      <div class="stat"><div class="stat-icon">🕶️</div><div class="stat-label">UV Index</div><div class="stat-value">${uv}</div></div>
+      <div class="stat"><div class="stat-icon">🌅</div><div class="stat-label">Sunrise</div><div class="stat-value" style="font-size:14px">${sunrise}</div></div>
+      <div class="stat"><div class="stat-icon">🌇</div><div class="stat-label">Sunset</div><div class="stat-value" style="font-size:14px">${sunset}</div></div>
+      <div class="stat"><div class="stat-icon">☔</div><div class="stat-label">Rain Chance</div><div class="stat-value">${precipProb}%</div></div>
+    </div>
+
+    <div class="section-label">Next Hours</div>
+    <div class="hourly">${hourlyHtml}</div>
+
+    <div class="section-label">5-Day Forecast</div>
+    <div class="days">${daysHtml}</div>
+
+    <div class="footer">Weather data by Open-Meteo · PlaceMates</div>
+  `;
+}
+
+load();
+</script>
+</body>
+</html>
